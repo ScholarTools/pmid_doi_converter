@@ -1,119 +1,49 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Steps
------
-0. initialize table
-1. read through the files
-2. extract pmid and doi
-3. write to sql database
-
-
-#Global TODO
-#---------------------------------------------------------------
-#- verify updates work
-#- upload database to function or layer
-#- create update and upload function
-#
-
 
 """
-import pubmed_parser as pp
+
+
+
 import os
 import time
-import gzip
 import glob
 from lxml import etree
-from ftplib import FTP
-from io import BytesIO
+import mysql.connector
 
-from sqlalchemy.orm import relationship, sessionmaker
-from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, BigInteger
-from sqlalchemy import PrimaryKeyConstraint
-from sqlalchemy import inspect
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import create_engine, event
+mydb = mysql.connector.connect(
+  host="localhost",
+  user=os.environ['mysql_user'],
+  password=os.environ['mysql_pass'],
+  database="mydb"
+)
 
+mycursor = mydb.cursor()
 
-#TODO: Log the files we've used ...
+mycursor.execute("DROP TABLE IF EXISTS ids")
 
+#Without the auto-incrementing primary key (that we don't use) everything
+#slows down a ton ...
+mycursor.execute("CREATE TABLE ids (" + 
+                 "id INT AUTO_INCREMENT PRIMARY KEY," + 
+                 "pmid INT NOT NULL UNIQUE," +
+                 "doi VARCHAR(255), INDEX(doi)) " +
+                 "CHARACTER SET utf8mb4")
+#mycursor.execute("CREATE TABLE ids (pmid INT PRIMARY KEY, doi VARCHAR(255), INDEX(doi))")
+#mydb.commit()
 
-prefix = 'pubmed21n'
-suffix = '.xml.gz'
-
-#Max # of files in the baseline
-#TODO: We could eventually pull this from the files ...
-n_max = 6
-
-
-
-root_path = "/Volumes/Pubmed/Pubmed/"
 root_path = "/Users/jim/Desktop/pubmed/"
-sql_file_path = "/Users/jim/Desktop/pubmed_db.sql"
-
-
-
-#Update code
-#---------------------------------------------------------------
-FTP_ROOT = 'ftp.ncbi.nlm.nih.gov'
-
-ftp = FTP(FTP_ROOT)
-
-ftp.login()
-
-ftp.cwd('pubmed/updatefiles/')
-
-files = ftp.nlst()
-
-for file_name in files:
-    out_file_path = os.path.join(root_path,file_name)
-    if os.path.exists(out_file_path):
-        pass
-    else:
-        print('Downloading: %s' % file_name)
-        with open(out_file_path, 'wb' ) as file :
-            ftp.retrbinary('RETR %s' % file_name, file.write)
-            file.close()
-
-ftp.quit()
-
-#DB Code ...
-#---------------------------------------------------------------
-Base = declarative_base()
-class ID(Base):
-    
-    __tablename__ = "ids"
-    pmid = Column(Integer,primary_key=True)
-    doi = Column(String,index=True)
-
-
-def init_db():
-    if os.path.exists(sql_file_path):
-        os.remove(sql_file_path)
-    engine = create_engine('sqlite:///' + sql_file_path)
-    Base.metadata.create_all(bind=engine)
-    Session = sessionmaker()
-    Session.configure(bind=engine)
-    session = Session()
-    
-    return session
-
-
-#year 2021 -> 21
 
 def add_baseline_files_to_db():
-    
-    
-    session = init_db()
-    
+        
     files = sorted(glob.glob(os.path.join(root_path,'*.gz')))
     
-    id_set = set()
     for name in files:
         if name[-1] == 'z':
             file_path = os.path.join(root_path,name)
             print('Processing: %s' % (name))
-            id_set = add_file_to_db(file_path,session,id_set)
+            add_file_to_db(file_path)
     
     """
     for i in range(n_max):
@@ -124,7 +54,15 @@ def add_baseline_files_to_db():
         add_file_to_db(file_path,session)
     """
     
-def add_file_to_db(file_path,session,id_set):
+    
+#Additional bits to add
+#--------------------------------------------------
+#- journal name
+#- year
+#- vol
+# 
+    
+def add_file_to_db(file_path):
     """
     
 
@@ -142,6 +80,9 @@ def add_file_to_db(file_path,session,id_set):
     tree = etree.parse(file_path)
     #DTD
     #http://dtd.nlm.nih.gov/ncbi/pubmed/out/pubmed_190101.dtd
+    #
+    #Definitions
+    #https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html
 
     #We may want to dump all ids, not just doi ...
     """
@@ -167,8 +108,15 @@ def add_file_to_db(file_path,session,id_set):
     #and iterating over the result.
     article = tree.find('PubmedArticle')
     t2 = time.time()
+    print('t2-t1: %g' % (t2-t1)) 
+    t2 = time.time()
     #mapping = {}
+    i = 0
     while article is not None:
+        i += 1
+        if i % 10000 == 0:
+            print('-- %d' % i)
+            
         article_ids = article.find('PubmedData/ArticleIdList')
         try:
             doi = article_ids.find('ArticleId[@IdType="doi"]')
@@ -184,17 +132,20 @@ def add_file_to_db(file_path,session,id_set):
         pmid_int = int(pmid.text)
         #mapping[pmid_int] = doi_text
         
+        mycursor.execute('INSERT INTO ids (pmid,doi) VALUES(%s,%s) ON DUPLICATE KEY UPDATE doi=%s',
+              (pmid_int,doi_text,doi_text))
         
-          t = (pmid,)
-    #TODO: How to say match 1 only ...
-    c.execute('SELECT doi FROM ids WHERE pmid=?', t)
+        article = article.getnext()
+    
+    """
     temp = c.fetchone()
     if temp is None:
         return ''
     else:
         return temp[0]
-        
-        #
+    
+    #https://stackoverflow.com/questions/4205181/insert-into-a-mysql-table-or-update-if-exists
+    #INSERT INTO table (id, name, age) VALUES(1, "A", 19) ON DUPLICATE KEY UPDATE name="A", age=19
         
         #TODO: We could compare temp to id
         
@@ -228,57 +179,14 @@ def add_file_to_db(file_path,session,id_set):
         
         
         article = article.getnext()
+    """
 
-    session.commit()
+    mydb.commit()
     t3 = time.time()
 
-    print('t2-t1: %g' % (t2-t1))   
+      
     print('t3-t2: %g' % (t3-t2)) 
     
-    return id_set
-    
-    
+
 if __name__ == "__main__":
     add_baseline_files_to_db() 
-        
-"""
-t1 = time.time()
-dicts_out = pp.parse_medline_xml(file_path,
-                                 year_info_only=False,
-                                 nlm_category=False,
-                                 author_list=False,
-                                 reference_list=False)
-
-t2 = time.time()
-print(t2-t1)
-#32 seconds ...
-#43 seconds for 100
-
-"""
-
-
-"""
-FTP_ROOT = 'ftp://ftp.ncbi.nlm.nih.gov/'
-FTP_ROOT = 'ftp.ncbi.nlm.nih.gov'
-
-
-ftp_baseline_root = 'ftp://ftp.ncbi.nlm.nih.gov/pubmed/baseline'
-
-ftp = FTP(FTP_ROOT)
-
-ftp.login()
-
-ftp.cwd('pubmed/baseline')
-
-t1 = time.time()
-#https://stackoverflow.com/questions/11208957/is-it-possible-to-read-ftp-files-without-writing-them-using-python
-r = BytesIO()
-ftp.retrbinary('RETR ' + 'pubmed21n0100.xml.gz', r.write)
-
-t2 = time.time()
-print(t2-t1)
-
-wtf = r.getvalue()
-"""
-
-
