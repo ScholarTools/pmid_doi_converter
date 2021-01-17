@@ -9,6 +9,7 @@
 import os
 import time
 import glob
+from ftplib import FTP
 from lxml import etree
 import mysql.connector
 
@@ -21,39 +22,113 @@ mydb = mysql.connector.connect(
 
 mycursor = mydb.cursor()
 
-mycursor.execute("DROP TABLE IF EXISTS ids")
-
-#Without the auto-incrementing primary key (that we don't use) everything
-#slows down a ton ...
-mycursor.execute("CREATE TABLE ids (" + 
-                 "id INT AUTO_INCREMENT PRIMARY KEY," + 
-                 "pmid INT NOT NULL UNIQUE," +
-                 "doi VARCHAR(255), INDEX(doi)) " +
-                 "CHARACTER SET utf8mb4")
-#mycursor.execute("CREATE TABLE ids (pmid INT PRIMARY KEY, doi VARCHAR(255), INDEX(doi))")
-#mydb.commit()
-
 root_path = "/Users/jim/Desktop/pubmed/"
+
+if os.environ.get("AWS_EXECUTION_ENV") is not None:
+    updates_root_path = "/tmp/"
+else:
+    updates_root_path = "./tmp/"
+
+def add_update_files_to_db():
+    
+    #1 - get file list
+    #2 - 
+    
+    ftp = get_ftp_conn()
+    
+    files = ftp.nlst()
+    files = sorted(filter (lambda x:x.endswith(".gz") , files))
+
+    
+    for file_name in files:
+        mycursor.execute("SELECT id FROM updates WHERE file_name = %s",(file_name,))
+        myresult = mycursor.fetchone()
+        if myresult is None:
+            #download file locally
+            out_file_path = os.path.join(updates_root_path, file_name)
+            if os.path.exists(out_file_path):
+                pass
+            else:
+                print('Downloading: %s' % file_name)
+                with open(out_file_path, 'wb' ) as file:
+                    try:
+                        ftp.retrbinary('RETR %s' % file_name, file.write)
+                    except:
+                        ftp = get_ftp_conn()
+                        ftp.retrbinary('RETR %s' % file_name, file.write)
+                    
+                    file.close()
+            
+            print('Processing: %s' % (file_name))
+            add_file_to_db(out_file_path)
+    
+
+def get_ftp_conn():
+    
+    FTP_ROOT = 'ftp.ncbi.nlm.nih.gov'
+
+    ftp = FTP(FTP_ROOT)
+    
+    ftp.login()
+    
+    ftp.cwd('pubmed/updatefiles/')
+    
+    return ftp
+    
+    
+    
+    """
+    for file_name in files:
+        out_file_path = os.path.join(root_path,file_name)
+        if os.path.exists(out_file_path):
+            pass
+        else:
+            print('Downloading: %s' % file_name)
+            with open(out_file_path, 'wb' ) as file :
+                ftp.retrbinary('RETR %s' % file_name, file.write)
+                file.close()
+
+    ftp.quit()
+    """
+
+def recreate_db():
+
+    mycursor.execute("DROP TABLE IF EXISTS ids")
+    mycursor.execute("DROP TABLE IF EXISTS updates")
+    mycursor.execute("DROP TABLE IF EXISTS deleted")
+    
+    #Without the auto-incrementing primary key (that we don't use) everything
+    #slows down a ton ...
+    #
+    #
+    mycursor.execute("CREATE TABLE ids (" + 
+                     "id INT AUTO_INCREMENT PRIMARY KEY," + 
+                     "pmid INT NOT NULL UNIQUE," +
+                     "doi VARCHAR(255), INDEX(doi)," +
+                     "journal_name VARCHAR(255)," + 
+                     "journal_volume VARCHAR(100)," + 
+                     "journal_year INT," + 
+                     "journal_issue VARCHAR(140)," +
+                     "journal_month VARCHAR(20)" +
+                     ") CHARACTER SET utf8mb4")
+    
+    mycursor.execute("CREATE TABLE updates (id INT AUTO_INCREMENT PRIMARY KEY, file_name VARCHAR(255))")
+
+    mycursor.execute("CREATE TABLE deleted (id INT AUTO_INCREMENT PRIMARY KEY, pmid INT, file_name VARCHAR(255))")
+    
 
 def add_baseline_files_to_db():
         
     files = sorted(glob.glob(os.path.join(root_path,'*.gz')))
     
+    i = 0
     for name in files:
-        if name[-1] == 'z':
-            file_path = os.path.join(root_path,name)
-            print('Processing: %s' % (name))
-            add_file_to_db(file_path)
-    
-    """
-    for i in range(n_max):
-        value = i + 1
-        int_string = '%04d' % (value)
-        print('Processing: %d' % (value))
-        file_path = root_path + prefix + int_string + suffix
-        add_file_to_db(file_path,session)
-    """
-    
+        i = i + 1
+        if (i < 2):
+            if name[-1] == 'z':
+                file_path = os.path.join(root_path,name)
+                print('Processing: %s' % (name))
+                add_file_to_db(file_path)
     
 #Additional bits to add
 #--------------------------------------------------
@@ -69,13 +144,31 @@ def add_file_to_db(file_path):
     Parameters
     ----------
     file_path : file path, .gz extension
-    session : sqlalchemy session (class name?)
 
     Returns
     -------
     None.
+    
+    Things to Add
+    -------------
+    - pmid
+    - doi
+    - pmcid
+    - journal
+    - year
+    
+    - last names
+    - mesh
+    - 
+    
 
     """
+    
+    #file_name = file_path
+    
+    file_name = os.path.splitext(os.path.basename(file_path))[0]
+    
+    
     t1 = time.time()
     tree = etree.parse(file_path)
     #DTD
@@ -117,70 +210,155 @@ def add_file_to_db(file_path):
         if i % 10000 == 0:
             print('-- %d' % i)
             
-        article_ids = article.find('PubmedData/ArticleIdList')
+        #MedlineCitation, PubmedData?
+        
+        """
+        
+        <!ELEMENT	PubmedArticle (MedlineCitation, PubmedData?)>
+        
+        <!ELEMENT	MedlineCitation (PMID, 
+                                   DateCompleted?, 
+                                   DateRevised?,
+                                   Article, 
+                             MedlineJournalInfo, 
+                             ChemicalList?, 
+                             SupplMeshList?,
+                             CitationSubset*, 
+                             CommentsCorrectionsList?, 
+                             GeneSymbolList?,
+                             MeshHeadingList?, 
+                             NumberOfReferences?, 
+                             PersonalNameSubjectList?, 
+                             OtherID*, 
+                             OtherAbstract*, 
+                             KeywordList*, 
+                             CoiStatement?, 
+                             SpaceFlightMission*, 
+                             InvestigatorList?, 
+                             GeneralNote*)>
+        
+        
+        
+        <!ELEMENT	Article (Journal,
+                           ArticleTitle,
+                        ((Pagination, ELocationID*) | ELocationID+),
+                        Abstract?,
+                        AuthorList?, 
+                        Language+,
+                        DataBankList?,
+                        GrantList?,
+                        PublicationTypeList,
+                        VernacularTitle?,
+                        ArticleDate*) >
+        <!ATTLIST	Article 
+		    PubModel (Print | Print-Electronic | Electronic | Electronic-Print | Electronic-eCollection) #REQUIRED >
+        
+        """
+        
+        """
+        PubmedData (History?, 
+                    PublicationStatus, 
+                    ArticleIdList, 
+                    ObjectList?, 
+                    ReferenceList*) 
+        """
+        
+        medline_citation = article.find('MedlineCitation')
+        
         try:
-            doi = article_ids.find('ArticleId[@IdType="doi"]')
-            pmid = article_ids.find('ArticleId[@IdType="pubmed"]')
-            doi_text = doi.text
+            article2 = medline_citation.find('Article')
+            #TODO: Should do a more specific catch ...
         except:
-            pmid = article.find('MedlineCitation/PMID')
-            doi_text = ''
-            if article_ids is None:
-                #Get pubmed id the other way, not sure where this is ...
-                pass
-            pass
-        pmid_int = int(pmid.text)
-        #mapping[pmid_int] = doi_text
+            print("Executing delete code")
+            #article may really be a DeleteCitation element
+            #
+            ##<!ELEMENT	DeleteCitation (PMID+) >
+            #
+            #TODO: Should verify 
+            #article.tag == 'DeleteCitation'
+            for pmid_element in article:
+                pmid = pmid_element.text
+                mycursor.execute("DELETE FROM ids WHERE pmid = %s",(pmid,))
+                mycursor.execute("INSERT INTO deleted (pmid,file_name) VALUES(%s,%s)",(pmid,file_name))
+
+            article = article.getnext()  
+            continue
+            
+        #------------------------------------------------------------------
+            
+        journal = article2.find('Journal')
         
-        mycursor.execute('INSERT INTO ids (pmid,doi) VALUES(%s,%s) ON DUPLICATE KEY UPDATE doi=%s',
-              (pmid_int,doi_text,doi_text))
         
-        article = article.getnext()
-    
-    """
-    temp = c.fetchone()
-    if temp is None:
-        return ''
-    else:
-        return temp[0]
-    
-    #https://stackoverflow.com/questions/4205181/insert-into-a-mysql-table-or-update-if-exists
-    #INSERT INTO table (id, name, age) VALUES(1, "A", 19) ON DUPLICATE KEY UPDATE name="A", age=19
+        #<!ELEMENT	Journal (ISSN?, JournalIssue, Title?, ISOAbbreviation?)>
+        #<!ELEMENT	JournalIssue (Volume?, Issue?, PubDate) >
+        #<!ELEMENT	PubDate ((Year, ((Month, Day?) | Season)?) | MedlineDate) >
+
         
-        #TODO: We could compare temp to id
+
+        journal_title = journal.find('Title')
+        journaL_text = journal_title.text
         
-        id = ID()
-        id.pmid = pmid_int
-        id.doi = doi_text
+        journal_issue = journal.find('JournalIssue')
         
-        if pmid_int in id_set:
-            #TODO: Should this be one????c
-            temp = session.query(ID).filter(ID.pmid == pmid_int).first()
-            session.delete(temp)
-            session.flush()
+        journal_volume = journal_issue.find('Volume')
+        if journal_volume is None:
+            journal_volume_text = ''
         else:
-            id_set.add(pmid_int)
+            journal_volume_text = journal_volume.text
+        
+        journal_issue2 = journal_issue.find('Issue')
+        if journal_issue2 is None:
+            journal_issue_text = ''
+        else:
+            journal_issue_text = journal_issue2.text
+        
+        
+        journal_date = journal_issue.find('PubDate')
+        
 
+        journal_year = journal_date.find('Year')
+        if journal_year is None:
+            journal_year_text = '0'
+        else:
+            journal_year_text = journal_year.text
         
-        #if temp:
-        #    print('Updating object for %d' % (pmid_int))
-        #    session.delete(temp)
-        #    session.flush()
+        journal_month = journal_date.find('Month')
+        if journal_month is None:
+            journal_month_text = ''
+        else:
+            journal_month_text = journal_month.text       
+        
+        pmid = medline_citation.find('PMID')
+        pmid_text = pmid.text
         
         
-        #NOTES:
-        #1) Querying in the loop increasese execution time from like 4-5 seconds 
-        #to roughly 40 seconds per loop
+        #article2
+        #((Pagination, ELocationID*) | ELocationID+),
         #
-        #2) Commit to force uniqueness instead is SUPER slow , 113 seconds
         
-
-        session.add(id)
         
+        #<!ELEMENT	PubmedData (History?, PublicationStatus, ArticleIdList, ObjectList?, ReferenceList*) >
+        
+        pubmed_data = article.find('PubmedData')
+        if pubmed_data is None:
+            doi_text = ''
+        else:
+            article_ids = pubmed_data.find('ArticleIdList')
+            doi = article_ids.find('ArticleId[@IdType="doi"]')
+            if doi is None:
+                doi_text = ''
+            else:
+                doi_text = doi.text
+                         
+        mycursor.execute("INSERT INTO ids (pmid,doi,journal_name,journal_volume,journal_year,journal_issue,journal_month) " + 
+                         "VALUES(%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE " + 
+                         "doi=%s,journal_name=%s,journal_volume=%s,journal_year=%s,journal_issue=%s,journal_month=%s",
+              (pmid_text,doi_text,journaL_text,journal_volume_text,journal_year_text,
+               journal_issue_text,journal_month_text,doi_text,journaL_text,
+               journal_volume_text,journal_year_text,journal_issue_text,journal_month_text))
         
         article = article.getnext()
-    """
-
+    
     mydb.commit()
     t3 = time.time()
 
@@ -189,4 +367,8 @@ def add_file_to_db(file_path):
     
 
 if __name__ == "__main__":
+    recreate_db()
+    
+    add_update_files_to_db()
+    
     add_baseline_files_to_db() 
