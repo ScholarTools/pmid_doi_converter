@@ -23,6 +23,7 @@ mydb = mysql.connector.connect(
 mycursor = mydb.cursor()
 
 root_path = "/Users/jim/Desktop/pubmed/"
+root_path = 'G:/pubmed_2021'
 
 if os.environ.get("AWS_EXECUTION_ENV") is not None:
     updates_root_path = "/tmp/"
@@ -106,9 +107,9 @@ def recreate_db():
                      "pmid INT NOT NULL UNIQUE," +
                      "doi VARCHAR(255), INDEX(doi)," +
                      "journal_name VARCHAR(255)," + 
-                     "journal_volume VARCHAR(100)," + 
+                     "journal_volume VARCHAR(255)," + 
                      "journal_year INT," + 
-                     "journal_issue VARCHAR(140)," +
+                     "journal_issue VARCHAR(255)," +
                      "journal_month VARCHAR(20)" +
                      ") CHARACTER SET utf8mb4")
     
@@ -124,7 +125,8 @@ def add_baseline_files_to_db():
     i = 0
     for name in files:
         i = i + 1
-        if (i < 2):
+        #For debugging a certain file, change i
+        if i > 0:
             if name[-1] == 'z':
                 file_path = os.path.join(root_path,name)
                 print('Processing: %s' % (name))
@@ -349,13 +351,17 @@ def add_file_to_db(file_path):
                 doi_text = ''
             else:
                 doi_text = doi.text
-                         
-        mycursor.execute("INSERT INTO ids (pmid,doi,journal_name,journal_volume,journal_year,journal_issue,journal_month) " + 
+        
+        try:                 
+            mycursor.execute("INSERT INTO ids (pmid,doi,journal_name,journal_volume,journal_year,journal_issue,journal_month) " + 
                          "VALUES(%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE " + 
                          "doi=%s,journal_name=%s,journal_volume=%s,journal_year=%s,journal_issue=%s,journal_month=%s",
               (pmid_text,doi_text,journaL_text,journal_volume_text,journal_year_text,
                journal_issue_text,journal_month_text,doi_text,journaL_text,
                journal_volume_text,journal_year_text,journal_issue_text,journal_month_text))
+        except:
+            import pdb
+            pdb.set_trace()
         
         article = article.getnext()
     
@@ -369,6 +375,8 @@ def add_file_to_db(file_path):
 if __name__ == "__main__":
     recreate_db()
     
+    add_baseline_files_to_db()
+    
     add_update_files_to_db()
     
-    add_baseline_files_to_db() 
+     
