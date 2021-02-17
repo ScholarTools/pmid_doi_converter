@@ -11,24 +11,47 @@ import time
 import glob
 from ftplib import FTP
 from lxml import etree
-import mysql.connector
+#import mysql.connector
+import pymysql
 
+"""
 mydb = mysql.connector.connect(
   host="localhost",
   user=os.environ['mysql_user'],
   password=os.environ['mysql_pass'],
   database="mydb"
 )
+"""
+
+def connect():
+
+    conn = pymysql.connect(
+      host="localhost",
+      user=os.environ['mysql_user'],
+      password=os.environ['mysql_pass'],
+      database="mydb"
+    )
+    
+    return conn
+
+mydb = connect()
 
 mycursor = mydb.cursor()
 
 root_path = "/Users/jim/Desktop/pubmed/"
-root_path = 'G:/pubmed_2021'
+#root_path = 'G:/pubmed_2021'
 
-if os.environ.get("AWS_EXECUTION_ENV") is not None:
+running_aws = os.environ.get("AWS_EXECUTION_ENV") is not None
+
+if running_aws:
     updates_root_path = "/tmp/"
 else:
     updates_root_path = "./tmp/"
+    
+    
+    
+    
+    
 
 def add_update_files_to_db():
     
@@ -373,10 +396,11 @@ def add_file_to_db(file_path):
     
 
 if __name__ == "__main__":
-    recreate_db()
-    
-    add_baseline_files_to_db()
-    
-    add_update_files_to_db()
+    if not running_aws:
+        recreate_db()
+        
+        add_baseline_files_to_db()
+        
+        add_update_files_to_db()
     
      
