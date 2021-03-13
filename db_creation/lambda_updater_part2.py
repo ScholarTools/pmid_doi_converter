@@ -15,7 +15,6 @@ import json
 import boto3
 import botocore
 
-BUCKET_NAME = 'pubmed2021'
 DB_USER = os.environ['mysql_user']
 DB_PASS = os.environ['mysql_pass']
 try:
@@ -187,14 +186,7 @@ def add_file_to_db(file_path,tree):
     #Definitions
     #https://www.nlm.nih.gov/bsd/licensee/elements_descriptions.html
 
-    #We may want to dump all ids, not just doi ...
-    """
-    	<Item Name="ArticleIds" Type="List">
-    		<Item Name="pubmed" Type="String">32022941</Item>
-    		<Item Name="doi" Type="String">10.1002/nau.24300</Item>
-    		<Item Name="rid" Type="String">32022941</Item>
-    		<Item Name="eid" Type="String">32022941</Item>
-    """
+
 
     #<PMID Version="1">1</PMID>
     #ArticleIdList
@@ -203,12 +195,17 @@ def add_file_to_db(file_path,tree):
     #</ArticleIdList>
     
     #PubmedArticleSet
+    #   <!ELEMENT	PubmedArticleSet ((PubmedArticle | PubmedBookArticle)+, DeleteCitation?) >
     #  - PubmedArticle
     
     #Quicker to iterate with while next than findall?
 
     #Note, it is much faster to iterate over articles rather than finding all
     #and iterating over the result.
+    
+    #Note, this may be wrong if teh first entry is a DeleteCitation
+    #- Do we have PubmedBookArticle?
+    
     article = tree.find('PubmedArticle')
     
     
@@ -348,6 +345,16 @@ def add_file_to_db(file_path,tree):
         
         
         #<!ELEMENT	PubmedData (History?, PublicationStatus, ArticleIdList, ObjectList?, ReferenceList*) >
+        
+        
+        #We may want to dump all ids, not just doi ...
+        """
+    	<Item Name="ArticleIds" Type="List">
+    		<Item Name="pubmed" Type="String">32022941</Item>
+    		<Item Name="doi" Type="String">10.1002/nau.24300</Item>
+    		<Item Name="rid" Type="String">32022941</Item>
+    		<Item Name="eid" Type="String">32022941</Item>
+        """
         
         pubmed_data = article.find('PubmedData')
         if pubmed_data is None:

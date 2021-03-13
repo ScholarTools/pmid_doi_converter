@@ -101,15 +101,71 @@ def lambda_handler(event, context):
         }
      
     elif target == '/pmids_to_dois':
+        #-------------------------------------------------------------------
+        if 'pmids' not in params:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error':'dois_to_pmids:dois_missing',
+                                    'message':'"pmids" parameter missing from in request',
+                                    'status':1})
+            }
         
-        pass
-    elif target == '/dois_to_pmids':
-        print(params)
+        status=0
+        message='retrieving dois for pmids'
+        temp = params['pmids']
+        pmids = temp.split(',')
+        #- -1 - pmid doesn't exist (doi not found)  
+        dois = []
+        for pmid in pmids:
+            cursor.execute("SELECT doi FROM ids where pmid=%s",(pmid,))
+            if cursor.rowcount == 0:
+                dois.append(-1)
+            else:   
+                myresult = cursor.fetchone()
+                dois.append(myresult[0])
+            
+        out = {'status':status,
+               'message':message,
+               'dois':dois}
+            
         return {
             'statusCode': 200,
-            'body': json.dumps(1)
+            'body': json.dumps(out)
+        }
+    elif target == '/dois_to_pmids':
+        #-------------------------------------------------------------------
+        if 'dois' not in params:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error':'dois_to_pmids:dois_missing',
+                                    'message':'"dois" parameter missing from in request',
+                                    'status':1})
+            }
+        
+        status=0
+        message='retrieving pmids for pmids'
+        temp = params['dois']
+        dois = temp.split(',')
+        #- -1 - pmid doesn't exist (doi not found)  
+        pmids = []
+        for doi in dois:
+            cursor.execute("SELECT pmid FROM ids where doi=%s",(doi,))
+            if cursor.rowcount == 0:
+                pmids.append(-1)
+            else:   
+                myresult = cursor.fetchone()
+                pmids.append(myresult[0])
+            
+        out = {'status':status,
+               'message':message,
+               'pmids':pmids}
+            
+        return {
+            'statusCode': 200,
+            'body': json.dumps(out)
         }
     elif target == '/doi_to_pmid':
+        #-------------------------------------------------------------------
         if 'doi' not in params:
             return {
                 'statusCode': 400,
