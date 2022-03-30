@@ -66,7 +66,8 @@ table_names = ['updates','deleted']
 
 #Note, main must be first ...
 other_table_names = ['main','abstract','authors','mesh','supp_mesh',
-               'chem','keywords','comments_corrections','personal_names']
+               'chem','keywords','comments_corrections','personal_names',
+               'space','data_bank','pub_types']
 
 table_names.extend(other_table_names)
     
@@ -94,7 +95,9 @@ def recreate_db():
                      "journal_issue VARCHAR(255)," +
                      "journal_month VARCHAR(20)," +
                      "title VARCHAR(1000)," +
+                     "vernacular_title VARCHAR(1000)," +
                      "pages VARCHAR(255)," +
+                     "coi TEXT," +
                      "n_chems INT," +
                      "n_supp_mesh INT," +
                      "n_mesh INT," +
@@ -203,6 +206,46 @@ def recreate_db():
                               cc_pmid))
     """
     
+    # data bank -------------------------------------
+    
+    mycursor.execute("CREATE TABLE data_bank (" + 
+                     "id INT AUTO_INCREMENT PRIMARY KEY," + 
+                     "pmid INT NOT NULL," +
+                     "is_complete BOOLEAN NOT NULL," +
+                     "name varchar(30)," +
+                     "acc_number varchar(30)," +
+                     "ref_pmid INT," +
+                     "FOREIGN KEY (pmid) " +
+                     "REFERENCES main (pmid) " +
+                     "ON DELETE CASCADE " +
+                     ") CHARACTER SET utf8mb4")
+    
+    """
+    (None,pmid_text,is_complete,data_bank_name,acc_number.text)
+    """
+    
+    #  grants --------------------------------------------------
+    
+    mycursor.execute("CREATE TABLE grants (" + 
+                     "id INT AUTO_INCREMENT PRIMARY KEY," + 
+                     "pmid INT NOT NULL," +
+                     "is_complete BOOLEAN NOT NULL," +
+                     "grant_id varchar(50)," +
+                     "acronym varchar(30)," +
+                     "agency varchar(50)," +
+                     "country varchar(30),"
+                     "ref_pmid INT," +
+                     "FOREIGN KEY (pmid) " +
+                     "REFERENCES main (pmid) " +
+                     "ON DELETE CASCADE " +
+                     ") CHARACTER SET utf8mb4")
+    
+    """
+    
+    ((None,pmid_text,is_complete,
+                                  grant_id,acronym,agency,country))
+    """
+    
     # keywords -------------------------------------------------
     #owner: IE, PIP, NOTNLM
     #
@@ -271,6 +314,30 @@ def recreate_db():
                               initials,
                               suffix))
     
+    """
+    
+    # pub_types --------------------------------
+    mycursor.execute("CREATE TABLE pub_types (" + 
+                     "id INT AUTO_INCREMENT PRIMARY KEY," + 
+                     "pmid INT NOT NULL," +
+                     "ui_id VARCHAR(8)," +
+                     "value VARCHAR(50)," +
+                     "FOREIGN KEY (pmid) " +
+                     "REFERENCES main (pmid) " +
+                     "ON DELETE CASCADE " +
+                     ") CHARACTER SET utf8mb4") 
+    
+    """
+                pub_type_output.append(None,pmid_text,
+                                   pub_type.attrib['UI'],pub_type.text)
+    """
+    
+    # space -------------------------------------------------------
+    
+    """
+                space_output.apppend((None,
+                                  pmid_text,
+                                  space.text))
     """
     
     # supplemental mesh ------------------------------------------
